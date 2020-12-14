@@ -1,51 +1,50 @@
-from pydrive.auth import GoogleAuth
-from pydrive.drive import GoogleDrive
-import pydrive.files
+from __future__ import print_function
+from googleapiclient import discovery
+from httplib2 import Http
+from oauth2client import file, client, tools
+from apiclient.http import MediaFileUpload
+
+# needs a credentials.json file to start
 
 class DriveInterface:
     # class variables
-    gauth = 0
     drive = 0
+    store = 0
+    
+    MIMETYPEJPG = "image/jpeg"
+    MIEMTYPETEXTPLAIN = "text/plain"
 
-
-    # gets authentication through webbrowser
+    # gets authentication through web browser unless a storage.json file is present
     def __init__(self):
-        self.gauth = GoogleAuth()
+        SCOPES = 'https://www.googleapis.com/auth/drive'
+        store = file.Storage('storage.json')
+        creds = store.get()
+        if not creds or creds.invalid:
+            flow = client.flow_from_clientsecrets('credentials.json', SCOPES)
+            creds = tools.run_flow(flow, store)
+        self.drive = discovery.build('drive', 'v3', http=creds.authorize(Http()))
 
-    def auth_browser(self):
-        self.gauth.LocalWebserverAuth()
-        self.drive = GoogleDrive(self.gauth)
+    # prints root directory
+    def print_root_directory(self):
+        files = self.drive.files().list().execute().get('files', [])
+        for f in files:
+                print(f['name'],f['mimeType'])
+        return files
 
-    # gets authentication through stored credentials file
-    def auth_file(self,filename):
-        self.gauth = GoogleAuth()
-        self.gauth.LoadCredentialsFile(filename)
-        self.drive = GoogleDrive(self.gauth)
-
-    # stores auth into a file so that browser verification is not needed
-    def save_auth_file(self,filename):
-        self.gauth.SaveCredentialsFile(filename)
-
-    # store file into the root directory of the Google Drive User
-    def upload_file(self,filename):
-        try:
-            file = self.drive.CreateFile()
-            file.SetContentFile(filename)
-            file.Upload()
-        except pydrive.files.FileNotUploadedError:
-            print("failed to upload file")
-
-
-    # uploads the specified folder into folder in the root directory (i.e no sub directories)
-    def upload_file_folder(self,filename,folder_name):
-        try:
-            folders = self.drive.ListFile({'q': "trashed=false"}).GetList()
-            for folder in folders:
-                if folder['title'] == folder_name:
-                    print(folder['parents'])
-                    file = self.drive.CreateFile({'parents': [{'id': folder['id']}]})
-                    file.SetContentFile(filename)
-                    file.Upload(param={'supportsTeamDrives': True})
-                print(folder['title'])
-        except pydrive.files.FileNotUploadedError:
-            print("failed to upload file")
+    # only uploads to root folders but will work with folders that are shortcuts
+    def uploadFile(self, filename, cloud_path, mimeType):
+        files = self.print_root_directory()
+        file_metadata = 0
+        for folder in files:
+            if folder["name"] == cloud_path and (folder["mimeType"] == "application/vnd.google-apps.shortcut" or folder["mimeType"] == "application/vnd.google-apps.folder"):
+                if folder["mimeType"] == "application/vnd.google-apps.shortcut":
+                    shortcuts = self.drive.files().list(q= "mimeType='application/vnd.google-apps.shortcut'",fields='*',includeItemsFromAllDrives=True,supportsAllDrives=True).execute().get('files',[])
+                    for shortcut in shortcuts:
+                        if shortcut['name'] == cloud_path:
+                            print(shortcut['shortcutDetails'])
+                    file_metadata = {'name' : filename, 'parents': [shortcut['shortcutDetails']['targetId']]}
+                else:
+                    file_metadata = {'name' : filename, 'parents': [folder['id']]}
+                media = MediaFileUpload(filename, mimetype=mimeType,resumable=True)
+                file = self.drive.files().create(body=file_metadata,media_body=media,fields='id', supportsAllDrives = True).execute()
+                break
