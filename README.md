@@ -5,3 +5,4 @@
 
 # Useful Links:
  - [PyDrive Docs](https://pythonhosted.org/PyDrive/quickstart.html)
+ - [MetOne 237 Manual](http://46.17.89.104/products/metone/237Manual.pdf)
